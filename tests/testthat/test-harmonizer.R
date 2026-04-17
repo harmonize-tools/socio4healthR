@@ -6,25 +6,45 @@ test_that("s4h_harmonizer passes arguments and coerces min_common_columns", {
   with_mocked_bindings(
     .s4h_get_module = function() fake_module,
     {
-      res <- s4h_harmonizer(min_common_columns = 2.7, similarity_threshold = 0.5)
+      res <- s4h_harmonizer(min_common_columns = 2.7, nan_threshold = 0.5)
       expect_equal(res$args$min_common_columns, 2L)
-      expect_equal(res$args$similarity_threshold, 0.5)
+      expect_equal(res$args$nan_threshold, 0.5)
     }
   )
 })
 
-test_that("s4h_vertical_merge converts output by return_as", {
+test_that("s4h_vertical_merge forwards overlap args and converts output by return_as", {
   ddf1 <- list(compute = function() "pd1")
   ddf2 <- list(compute = function() "pd2")
+  captured <- NULL
   harmonizer <- list(
-    s4h_vertical_merge = function(ddfs) list(ddf1, ddf2)
+    s4h_vertical_merge = function(ddfs, overlap_threshold, method) {
+      captured <<- list(
+        ddfs = ddfs,
+        overlap_threshold = overlap_threshold,
+        method = method
+      )
+      list(ddf1, ddf2)
+    }
   )
 
   with_mocked_bindings(
     py_to_r = function(x) x,
     .package = "reticulate",
     {
-      expect_equal(s4h_vertical_merge(harmonizer, list("a"), "dask"), list(ddf1, ddf2))
+      expect_equal(
+        s4h_vertical_merge(
+          harmonizer,
+          list("a"),
+          "dask",
+          overlap_threshold = 0.5,
+          method = "intersection"
+        ),
+        list(ddf1, ddf2)
+      )
+      expect_equal(captured$ddfs, list("a"))
+      expect_equal(captured$overlap_threshold, 0.5)
+      expect_equal(captured$method, "intersection")
       expect_equal(s4h_vertical_merge(harmonizer, list("a"), "pandas"), list("pd1", "pd2"))
       expect_equal(s4h_vertical_merge(harmonizer, list("a"), "data.frame"), list("pd1", "pd2"))
     }
