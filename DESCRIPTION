@@ -15,8 +15,8 @@ Description: Package socio4health is an extraction, transformation and loading
     into a harmonized dataset. This package provides R wrappers for the Python
     socio4health library, enabling seamless integration in R workflows.
 License: MIT + file LICENSE
-URL: https://github.com/harmonize-tools/socio4health
-BugReports: https://github.com/harmonize-tools/socio4health/issues
+URL: https://github.com/harmonize-tools/socio4healthR
+BugReports: https://github.com/harmonize-tools/socio4healthR/issues
 Depends: R (>= 4.1.0)
 Imports:
     reticulate

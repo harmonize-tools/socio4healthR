@@ -6,7 +6,6 @@
 \usage{
 s4h_harmonizer(
   min_common_columns = 1,
-  similarity_threshold = 1,
   nan_threshold = 1,
   sample_frac = NULL,
   column_mapping = NULL,
@@ -25,8 +24,6 @@ s4h_harmonizer(
 }
 \arguments{
 \item{min_common_columns}{Minimum number of common columns for vertical merge.}
-
-\item{similarity_threshold}{Column similarity threshold between 0 and 1.}
 
 \item{nan_threshold}{NaN threshold for removing columns between 0 and 1.}
 
