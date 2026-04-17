@@ -7,7 +7,6 @@
 #' All parameters are passed directly to the constructor.
 #'
 #' @param min_common_columns Minimum number of common columns for vertical merge.
-#' @param similarity_threshold Column similarity threshold between 0 and 1.
 #' @param nan_threshold NaN threshold for removing columns between 0 and 1.
 #' @param sample_frac Sampling fraction for NaN.
 #' @param column_mapping Enum, dict, JSON, or path to JSON.
@@ -26,7 +25,6 @@
 #' @return Python `Harmonizer` object.
 #' @export
 s4h_harmonizer <- function(min_common_columns = 1,
-                           similarity_threshold = 1,
                            nan_threshold = 1.0,
                            sample_frac = NULL,
                            column_mapping = NULL,
@@ -46,7 +44,6 @@ s4h_harmonizer <- function(min_common_columns = 1,
 
   harmonizer_cls(
     min_common_columns  = as.integer(min_common_columns),
-    similarity_threshold = similarity_threshold,
     nan_threshold       = nan_threshold,
     sample_frac         = sample_frac,
     column_mapping      = column_mapping,
@@ -71,15 +68,31 @@ s4h_harmonizer <- function(min_common_columns = 1,
 #' @param harmonizer Python `Harmonizer` object.
 #' @param ddfs List of Dask DataFrames (typically output from \code{s4h_run_extract(..., "dask")}).
 #' @param return_as \code{"dask"}, \code{"pandas"}, or \code{"data.frame"}.
+#' @param overlap_threshold Minimum overlap required between column sets.
+#' @param method Merge strategy passed to Python, e.g. \code{"union"}.
 #'
 #' @return List of DataFrames in the specified format.
 #' @export
 s4h_vertical_merge <- function(harmonizer,
                                ddfs,
-                               return_as = c("dask", "pandas", "data.frame")) {
+                               return_as = c("dask", "pandas", "data.frame"),
+                               overlap_threshold = 1.0,
+                               method = "union") {
   return_as <- match.arg(return_as)
 
-  res <- harmonizer$s4h_vertical_merge(ddfs)  # list of Dask DataFrames
+  merge_fun <- harmonizer$s4h_vertical_merge
+  merge_args <- list(ddfs)
+  optional_args <- list(
+    overlap_threshold = overlap_threshold,
+    method = method
+  )
+  fun_formals <- tryCatch(names(formals(merge_fun)), error = function(e) NULL)
+
+  if (!is.null(fun_formals) && !"..." %in% fun_formals) {
+    optional_args <- optional_args[names(optional_args) %in% fun_formals]
+  }
+
+  res <- do.call(merge_fun, c(merge_args, optional_args))  # list of Dask DataFrames
 
   if (return_as == "dask") {
     return(res)
