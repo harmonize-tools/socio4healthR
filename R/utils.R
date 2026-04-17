@@ -104,6 +104,28 @@ s4h_parse_fwf_dict <- function(dic) {
     stop("`dic` must be an R data.frame.")
   }
 
+  missing_cols <- setdiff(c("variable_name", "initial_position"), names(dic))
+  if (length(missing_cols) > 0) {
+    stop(
+      "`dic` must contain columns: ",
+      paste(sprintf("`%s`", missing_cols), collapse = ", "),
+      "."
+    )
+  }
+
+  dic$initial_position <- as.numeric(dic$initial_position)
+  if ("size" %in% names(dic)) {
+    dic$size <- as.numeric(dic$size)
+  }
+
+  if ("final_position" %in% names(dic)) {
+    dic$final_position <- as.numeric(dic$final_position)
+  } else if ("size" %in% names(dic)) {
+    dic$final_position <- dic$initial_position + dic$size - 1
+  } else {
+    stop("`dic` must contain either `size` or `final_position`.")
+  }
+
   # Import the Python module where the function is located
   ext_utils <- reticulate::import(
     "socio4health.utils.extractor_utils",
