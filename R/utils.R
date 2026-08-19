@@ -1,6 +1,27 @@
 # R/utils.R
 # Wrappers for socio4health.utils.harmonizer_utils
 
+.s4h_require_columns <- function(data, columns, argument) {
+  missing <- setdiff(columns, names(data))
+  if (length(missing) > 0L) {
+    stop(
+      "`", argument, "` is missing required columns: ",
+      paste(sprintf("`%s`", missing), collapse = ", "),
+      ".",
+      call. = FALSE
+    )
+  }
+}
+
+.s4h_positive_integer_column <- function(x, name) {
+  values <- suppressWarnings(as.numeric(as.character(x)))
+  if (anyNA(values) || any(!is.finite(values)) || any(values < 1) ||
+      any(values != floor(values))) {
+    stop("`", name, "` must contain positive whole numbers.", call. = FALSE)
+  }
+  values
+}
+
 #' Standardize a Variable Dictionary
 #'
 #' Wrapper for `s4h_standardize_dict()` in Python.
@@ -12,9 +33,14 @@
 #' @export
 s4h_standardize_dict <- function(raw_dict) {
   if (!is.data.frame(raw_dict)) {
-    stop("raw_dict must be an R data.frame.")
+    stop("`raw_dict` must be an R data.frame.", call. = FALSE)
   }
-  utils_mod <- reticulate::import("socio4health.utils.harmonizer_utils", delay_load = TRUE)
+  .s4h_require_columns(
+    raw_dict,
+    c("question", "variable_name", "description", "value"),
+    "raw_dict"
+  )
+  utils_mod <- .s4h_get_module("socio4health.utils.harmonizer_utils")
   df_py <- reticulate::r_to_py(raw_dict)
   res <- utils_mod$s4h_standardize_dict(df_py)
   reticulate::py_to_r(res)
@@ -30,9 +56,16 @@ s4h_standardize_dict <- function(raw_dict) {
 #' @export
 s4h_translate_column <- function(data, column, language = "en") {
   if (!is.data.frame(data)) {
-    stop("data must be an R data.frame.")
+    stop("`data` must be an R data.frame.", call. = FALSE)
   }
-  utils_mod <- reticulate::import("socio4health.utils.harmonizer_utils", delay_load = TRUE)
+  if (!is.character(column) || length(column) != 1L || is.na(column) ||
+      !column %in% names(data)) {
+    stop("`column` must name a column in `data`.", call. = FALSE)
+  }
+  if (!is.character(language) || length(language) != 1L || is.na(language)) {
+    stop("`language` must be a single character string.", call. = FALSE)
+  }
+  utils_mod <- .s4h_get_module("socio4health.utils.harmonizer_utils")
   df_py <- reticulate::r_to_py(data)
   res <- utils_mod$s4h_translate_column(df_py, column = column, language = language)
   reticulate::py_to_r(res)
@@ -47,7 +80,7 @@ s4h_translate_column <- function(data, column, language = "en") {
 #' @return \code{transformers.Pipeline} object (Python).
 #' @export
 s4h_get_classifier <- function(MODEL_PATH = "./bert_finetuned_classifier") {
-  utils_mod <- reticulate::import("socio4health.utils.harmonizer_utils", delay_load = TRUE)
+  utils_mod <- .s4h_get_module("socio4health.utils.harmonizer_utils")
   utils_mod$s4h_get_classifier(MODEL_PATH)
 }
 
@@ -69,9 +102,14 @@ s4h_classify_rows <- function(data,
                               new_column_name = "category",
                               MODEL_PATH = "./bert_finetuned_classifier") {
   if (!is.data.frame(data)) {
-    stop("data must be an R data.frame.")
+    stop("`data` must be an R data.frame.", call. = FALSE)
   }
-  utils_mod <- reticulate::import("socio4health.utils.harmonizer_utils", delay_load = TRUE)
+  text_columns <- c(col1, col2, col3)
+  if (!is.character(text_columns) || length(text_columns) != 3L ||
+      anyNA(text_columns) || any(!text_columns %in% names(data))) {
+    stop("`col1`, `col2`, and `col3` must name columns in `data`.", call. = FALSE)
+  }
+  utils_mod <- .s4h_get_module("socio4health.utils.harmonizer_utils")
   df_py <- reticulate::r_to_py(data)
   res <- utils_mod$s4h_classify_rows(
     data            = df_py,
@@ -104,33 +142,33 @@ s4h_parse_fwf_dict <- function(dic) {
     stop("`dic` must be an R data.frame.")
   }
 
-  missing_cols <- setdiff(c("variable_name", "initial_position"), names(dic))
-  if (length(missing_cols) > 0) {
-    stop(
-      "`dic` must contain columns: ",
-      paste(sprintf("`%s`", missing_cols), collapse = ", "),
-      "."
-    )
+  .s4h_require_columns(dic, c("variable_name", "initial_position"), "dic")
+  if (!"size" %in% names(dic) && !"final_position" %in% names(dic)) {
+    stop("`dic` must contain either `size` or `final_position`.", call. = FALSE)
   }
 
-  dic$initial_position <- as.numeric(dic$initial_position)
+  dic$initial_position <- .s4h_positive_integer_column(
+    dic$initial_position,
+    "initial_position"
+  )
   if ("size" %in% names(dic)) {
-    dic$size <- as.numeric(dic$size)
+    dic$size <- .s4h_positive_integer_column(dic$size, "size")
   }
 
   if ("final_position" %in% names(dic)) {
-    dic$final_position <- as.numeric(dic$final_position)
-  } else if ("size" %in% names(dic)) {
-    dic$final_position <- dic$initial_position + dic$size - 1
-  } else {
-    stop("`dic` must contain either `size` or `final_position`.")
+    dic$final_position <- .s4h_positive_integer_column(
+      dic$final_position,
+      "final_position"
+    )
+    if (any(dic$final_position < dic$initial_position)) {
+      stop(
+        "`final_position` must be greater than or equal to `initial_position`.",
+        call. = FALSE
+      )
+    }
   }
 
-  # Import the Python module where the function is located
-  ext_utils <- reticulate::import(
-    "socio4health.utils.extractor_utils",
-    delay_load = TRUE
-  )
+  ext_utils <- .s4h_get_module("socio4health.utils.extractor_utils")
 
   # Convert the R data.frame to pandas
   dic_py <- reticulate::r_to_py(dic)
