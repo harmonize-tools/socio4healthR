@@ -19,7 +19,8 @@ s4h_extractor(
   dtype = NULL,
   engine = NULL,
   sheet_name = NULL,
-  geodriver = NULL
+  geodriver = NULL,
+  delete_zip_after = FALSE
 )
 }
 \arguments{
@@ -52,13 +53,17 @@ s4h_extractor(
 \item{sheet_name}{Sheet name/index/vector of sheet names.}
 
 \item{geodriver}{Driver for reading geospatial files.}
+
+\item{delete_zip_after}{Logical. Delete downloaded ZIP archives after they
+have been extracted.}
 }
 \value{
 Python \code{Extractor} object.
 }
 \description{
 Direct wrapper for the \code{Extractor.__init__} constructor in Python.
-See \code{?socio4health::Extractor} for a detailed description of each argument.
+See the \href{https://harmonize-tools.github.io/socio4health/}{socio4health Python documentation}
+for a detailed description of each argument.
 }
 \examples{
 \dontrun{

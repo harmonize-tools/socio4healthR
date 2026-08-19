@@ -9,19 +9,21 @@ s4h_vertical_merge(
   ddfs,
   return_as = c("dask", "pandas", "data.frame"),
   overlap_threshold = 1,
-  method = "union"
+  method = c("union", "intersection")
 )
 }
 \arguments{
 \item{harmonizer}{Python \code{Harmonizer} object.}
 
-\item{ddfs}{List of Dask DataFrames (typically output from \code{s4h_run_extract(..., "dask")}).}
+\item{ddfs}{List of Dask DataFrames (typically output from \code{s4h_extract(..., "dask")}).}
 
 \item{return_as}{\code{"dask"}, \code{"pandas"}, or \code{"data.frame"}.}
 
-\item{overlap_threshold}{Minimum overlap required between column sets.}
+\item{overlap_threshold}{Numeric overlap coefficient between 0 and 1 required
+to group DataFrames.}
 
-\item{method}{Merge strategy passed to Python, e.g. \code{"union"}.}
+\item{method}{Merge strategy: \code{"union"} keeps every column and
+\code{"intersection"} keeps only common columns.}
 }
 \value{
 List of DataFrames in the specified format.

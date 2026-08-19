@@ -16,10 +16,10 @@
 [![Lifecycle:
 maturing](https://img.shields.io/badge/lifecycle-experimental-orange.svg)](https://lifecycle.r-lib.org/articles/stages.html#experimental)
 [![MIT
-license](https://img.shields.io/badge/License-MIT-blue.svg)](https://github.com/harmonize-tools/socio4health/blob/main/LICENSE.md/)
+license](https://img.shields.io/badge/License-MIT-blue.svg)](https://github.com/harmonize-tools/socio4healthR/blob/main/LICENSE.md)
 [![GitHub
-contributors](https://img.shields.io/github/contributors/harmonize-tools/socio4health)](https://github.com/harmonize-tools/socio4health/graphs/contributors)
-![commits](https://badgen.net/github/commits/harmonize-tools/socio4health/main)
+contributors](https://img.shields.io/github/contributors/harmonize-tools/socio4healthR)](https://github.com/harmonize-tools/socio4healthR/graphs/contributors)
+![commits](https://badgen.net/github/commits/harmonize-tools/socio4healthR/main)
 <!-- badges: end -->
 
 ## Overview  
@@ -137,16 +137,23 @@ contributors](https://img.shields.io/github/contributors/harmonize-tools/socio4h
 Before installing socio4healthR, ensure you have:
 
 - **R** >= 4.1.0
-- **Python** >= 3.8
-- **Python package** `socio4health`
+- An internet connection the first time Python functionality is used
 
-Install the Python package:
+Python >= 3.10 and the complete `socio4health` dependency stack are managed
+automatically by `reticulate`. You do not need to create a Python environment
+or run `pip install` manually. On Windows, the package selects the compatible
+PyTorch 2.8 release to avoid the DLL initialization regression in newer
+PyTorch releases when embedded in Qt applications such as RStudio. It also
+uses pandas 2.x because the current `socio4health` release is not yet compatible
+with pandas 3.x.
 
-```bash
-pip install socio4health
+### Install socio4healthR from CRAN
+
+```r
+install.packages("socio4healthR")
 ```
 
-### Install socio4healthR from GitHub
+### Install the development version from GitHub
 
 ```r
 # Install devtools if not already installed
@@ -157,6 +164,24 @@ if (!requireNamespace("devtools", quietly = TRUE)) {
 # Install from GitHub
 devtools::install_github("harmonize-tools/socio4healthR")
 ```
+
+Unless the user explicitly selects another Python installation, socio4healthR
+gives the managed environment priority over legacy environments such as
+`r-reticulate`. The first call to a function backed by Python creates this
+cached, isolated environment and installs `socio4health` with all its
+dependencies. To perform this provisioning immediately and inspect the
+selected Python installation:
+
+```r
+library(socio4healthR)
+s4h_check_env(initialize = TRUE)
+```
+
+Users who explicitly set `RETICULATE_PYTHON`, `RETICULATE_PYTHON_ENV`, or
+`RETICULATE_USE_MANAGED_VENV = "no"` remain responsible for installing
+compatible dependencies in that environment. To force the managed environment
+before loading the package, set `Sys.setenv(RETICULATE_PYTHON = "managed")`.
+
 ## How to Use it
 
 To use socio4healthR, follow these steps:
@@ -176,16 +201,20 @@ To use socio4healthR, follow these steps:
 3. Extract data and create a list of DataFrames:
 
    ```r
-   data_list <- s4h_run_extract(
+   data_list <- s4h_extract(
      extractor = extractor,
-     return_as = "data.frame"  # Can be "dask", "pandas", or "data.frame"
+     return_as = "dask"
    )
    
    # Create a Harmonizer
    harmonizer <- s4h_harmonizer()
    
    # Harmonize your data
-   merged_data <- s4h_vertical_merge(harmonizer, data_list)
+   merged_data <- s4h_vertical_merge(
+     harmonizer,
+     data_list,
+     return_as = "data.frame"
+   )
    ```
 
 For more detailed examples and use cases, please refer to the [socio4health documentation](https://harmonize-tools.github.io/socio4health/).

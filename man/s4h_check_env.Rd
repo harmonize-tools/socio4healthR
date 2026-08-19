@@ -4,17 +4,25 @@
 \alias{s4h_check_env}
 \title{Check Python Environment Status}
 \usage{
-s4h_check_env()
+s4h_check_env(initialize = FALSE)
+}
+\arguments{
+\item{initialize}{Logical. If \code{TRUE}, initialize the managed Python
+environment and install missing requirements before reporting its status.}
 }
 \value{
 Invisibly returns a list with environment information.
 }
 \description{
-Displays information about the current Python environment and socio4health availability.
+Reports the active Python configuration and the requirements declared by
+socio4healthR. By default this function does not initialize Python or
+download dependencies.
 }
 \examples{
-\dontrun{
 s4h_check_env()
+\dontrun{
+# Provision the complete Python environment immediately.
+s4h_check_env(initialize = TRUE)
 }
 
 }
