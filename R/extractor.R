@@ -15,15 +15,16 @@
 #'
 #' @export
 s4h_get_default_data_dir <- function() {
-  extractor_mod <- reticulate::import("socio4health.extractor", delay_load = TRUE)
+  extractor_mod <- .s4h_get_module("socio4health.extractor")
   path <- extractor_mod$s4h_get_default_data_dir()
-  as.character(path)
+  reticulate::py_str(path)
 }
 
 #' Create a socio4health `Extractor` Object
 #'
 #' Direct wrapper for the `Extractor.__init__` constructor in Python.
-#' See \code{?socio4health::Extractor} for a detailed description of each argument.
+#' See the [socio4health Python documentation](https://harmonize-tools.github.io/socio4health/)
+#' for a detailed description of each argument.
 #'
 #' @param input_path Path (URL or local folder). Required.
 #' @param depth Scraping depth (when \code{input_path} is a URL).
@@ -40,6 +41,8 @@ s4h_get_default_data_dir <- function() {
 #' @param engine Engine for reading Excel files.
 #' @param sheet_name Sheet name/index/vector of sheet names.
 #' @param geodriver Driver for reading geospatial files.
+#' @param delete_zip_after Logical. Delete downloaded ZIP archives after they
+#'   have been extracted.
 #'
 #' @return Python `Extractor` object.
 #'
@@ -67,7 +70,16 @@ s4h_extractor <- function(input_path,
                           dtype = NULL,
                           engine = NULL,
                           sheet_name = NULL,
-                          geodriver = NULL) {
+                          geodriver = NULL,
+                          delete_zip_after = FALSE) {
+  if (!is.character(input_path) || length(input_path) != 1L || is.na(input_path)) {
+    stop("`input_path` must be a single character string.", call. = FALSE)
+  }
+  if (!is.logical(delete_zip_after) || length(delete_zip_after) != 1L ||
+      is.na(delete_zip_after)) {
+    stop("`delete_zip_after` must be TRUE or FALSE.", call. = FALSE)
+  }
+
   mod <- .s4h_get_module()
   extractor_cls <- mod$Extractor
 
@@ -85,8 +97,9 @@ s4h_extractor <- function(input_path,
     ddtype      = ddtype,
     dtype       = dtype,
     engine      = engine,
-    sheet_name  = sheet_name,
-    geodriver   = geodriver
+    sheet_name       = sheet_name,
+    geodriver        = geodriver,
+    delete_zip_after = delete_zip_after
   )
 }
 
@@ -105,24 +118,11 @@ s4h_extractor <- function(input_path,
 #' * \code{"data.frame"}: list of R data.frames.
 #' @export
 s4h_extract <- function(extractor,
-                            return_as = c("dask", "pandas", "data.frame")) {
+                        return_as = c("dask", "pandas", "data.frame")) {
   return_as <- match.arg(return_as)
 
   res <- extractor$s4h_extract()  # list of Dask DataFrames
-
-  if (return_as == "dask") {
-    return(res)
-  }
-
-  out <- lapply(res, function(ddf) {
-    if (return_as == "pandas") {
-      ddf$compute()
-    } else {
-      reticulate::py_to_r(ddf$compute())
-    }
-  })
-
-  out
+  .s4h_convert_dataframe_list(res, return_as)
 }
 
 #' Delete the Download Folder from an `Extractor` Object
@@ -135,9 +135,11 @@ s4h_extract <- function(extractor,
 #' @return \code{TRUE}/\code{FALSE} based on the result from Python.
 #' @export
 s4h_delete_download_folder <- function(extractor, folder_path = NULL) {
-  if (is.null(folder_path)) {
+  result <- if (is.null(folder_path)) {
     extractor$s4h_delete_download_folder()
   } else {
     extractor$s4h_delete_download_folder(folder_path = folder_path)
   }
+
+  reticulate::py_to_r(result)
 }
