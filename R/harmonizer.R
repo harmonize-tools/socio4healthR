@@ -39,6 +39,21 @@ s4h_harmonizer <- function(min_common_columns = 1,
                            extra_cols = NULL,
                            join_key = NULL,
                            aux_key = NULL) {
+  if (!is.numeric(min_common_columns) || length(min_common_columns) != 1L ||
+      is.na(min_common_columns) || !is.finite(min_common_columns) ||
+      min_common_columns < 1 || min_common_columns != floor(min_common_columns)) {
+    stop("`min_common_columns` must be a positive whole number.", call. = FALSE)
+  }
+  if (!is.numeric(nan_threshold) || length(nan_threshold) != 1L ||
+      is.na(nan_threshold) || nan_threshold < 0 || nan_threshold > 1) {
+    stop("`nan_threshold` must be a number between 0 and 1.", call. = FALSE)
+  }
+  if (!is.null(sample_frac) &&
+      (!is.numeric(sample_frac) || length(sample_frac) != 1L ||
+       is.na(sample_frac) || sample_frac <= 0 || sample_frac > 1)) {
+    stop("`sample_frac` must be NULL or a number greater than 0 and at most 1.", call. = FALSE)
+  }
+
   mod <- .s4h_get_module()
   harmonizer_cls <- mod$Harmonizer
 
@@ -66,10 +81,12 @@ s4h_harmonizer <- function(min_common_columns = 1,
 #' Wrapper for `Harmonizer.s4h_vertical_merge()`.
 #'
 #' @param harmonizer Python `Harmonizer` object.
-#' @param ddfs List of Dask DataFrames (typically output from \code{s4h_run_extract(..., "dask")}).
+#' @param ddfs List of Dask DataFrames (typically output from \code{s4h_extract(..., "dask")}).
 #' @param return_as \code{"dask"}, \code{"pandas"}, or \code{"data.frame"}.
-#' @param overlap_threshold Minimum overlap required between column sets.
-#' @param method Merge strategy passed to Python, e.g. \code{"union"}.
+#' @param overlap_threshold Numeric overlap coefficient between 0 and 1 required
+#'   to group DataFrames.
+#' @param method Merge strategy: \code{"union"} keeps every column and
+#'   \code{"intersection"} keeps only common columns.
 #'
 #' @return List of DataFrames in the specified format.
 #' @export
@@ -77,36 +94,20 @@ s4h_vertical_merge <- function(harmonizer,
                                ddfs,
                                return_as = c("dask", "pandas", "data.frame"),
                                overlap_threshold = 1.0,
-                               method = "union") {
+                               method = c("union", "intersection")) {
   return_as <- match.arg(return_as)
+  method <- match.arg(method)
+  if (!is.numeric(overlap_threshold) || length(overlap_threshold) != 1L ||
+      is.na(overlap_threshold) || overlap_threshold < 0 || overlap_threshold > 1) {
+    stop("`overlap_threshold` must be a number between 0 and 1.", call. = FALSE)
+  }
 
-  merge_fun <- harmonizer$s4h_vertical_merge
-  merge_args <- list(ddfs)
-  optional_args <- list(
+  res <- harmonizer$s4h_vertical_merge(
+    ddfs,
     overlap_threshold = overlap_threshold,
     method = method
   )
-  fun_formals <- tryCatch(names(formals(merge_fun)), error = function(e) NULL)
-
-  if (!is.null(fun_formals) && !"..." %in% fun_formals) {
-    optional_args <- optional_args[names(optional_args) %in% fun_formals]
-  }
-
-  res <- do.call(merge_fun, c(merge_args, optional_args))  # list of Dask DataFrames
-
-  if (return_as == "dask") {
-    return(res)
-  }
-
-  out <- lapply(res, function(ddf) {
-    if (return_as == "pandas") {
-      ddf$compute()
-    } else {
-      reticulate::py_to_r(ddf$compute())
-    }
-  })
-
-  out
+  .s4h_convert_dataframe_list(res, return_as)
 }
 
 #' Drop Columns with Many NaN Values using `Harmonizer`
@@ -126,20 +127,12 @@ s4h_drop_nan_columns <- function(harmonizer,
 
   res <- harmonizer$drop_nan_columns(ddf_or_ddfs)
 
-  convert_one <- function(ddf) {
-    if (return_as == "dask") {
-      ddf
-    } else if (return_as == "pandas") {
-      ddf$compute()
-    } else {
-      reticulate::py_to_r(ddf$compute())
-    }
-  }
-
-  if (inherits(res, "python.builtin.list")) {
-    lapply(res, convert_one)
+  if (inherits(res, c("python.builtin.list", "python.builtin.tuple")) ||
+      (is.list(res) && !is.data.frame(res) &&
+       !inherits(res, "python.builtin.object"))) {
+    .s4h_convert_dataframe_list(res, return_as)
   } else {
-    convert_one(res)
+    .s4h_convert_dataframe(res, return_as)
   }
 }
 
@@ -154,7 +147,8 @@ s4h_drop_nan_columns <- function(harmonizer,
 s4h_get_available_columns <- function(df_or_dfs) {
   mod <- .s4h_get_module()
   harmonizer_cls <- mod$Harmonizer
-  harmonizer_cls$s4h_get_available_columns(df_or_dfs)
+  columns <- harmonizer_cls$s4h_get_available_columns(df_or_dfs)
+  unlist(reticulate::py_to_r(columns), use.names = FALSE)
 }
 
 #' Harmonize DataFrames by Country with `Harmonizer`
@@ -172,38 +166,23 @@ s4h_harmonize_dataframes <- function(harmonizer,
                                      return_as = c("dask", "pandas", "data.frame")) {
   return_as <- match.arg(return_as)
 
-  # reticulate::py_is_instance is not available in all versions.
-  py_is_instance_fun <- get0("py_is_instance", envir = asNamespace("reticulate"), mode = "function")
-  is_py_dict <- FALSE
-  if (!is.null(py_is_instance_fun)) {
-    is_py_dict <- isTRUE(tryCatch(py_is_instance_fun(country_dfs, "dict"), error = function(e) FALSE))
-  } else {
-    cls <- class(country_dfs)
-    is_py_dict <- any(grepl("^python\\.builtin\\.dict$", cls))
-  }
-
-  # If it comes as an R structure, convert it to Python directly:
-  if (!is_py_dict) {
-    country_dfs <- reticulate::r_to_py(country_dfs)
+  if (!inherits(country_dfs, "python.builtin.dict")) {
+    if (!is.list(country_dfs) || is.null(names(country_dfs)) ||
+        any(!nzchar(names(country_dfs)))) {
+      stop("`country_dfs` must be a named list or a Python dictionary.", call. = FALSE)
+    }
+    country_dfs <- reticulate::r_to_py(country_dfs, convert = FALSE)
   }
 
   res <- harmonizer$s4h_harmonize_dataframes(country_dfs)
 
-  if (return_as == "dask") {
-    return(res)
-  }
-
-  # res is dict: country -> list(Dask)
-  keys <- reticulate::py_to_r(res$keys())
+  keys <- vapply(
+    reticulate::iterate(res$keys(), simplify = FALSE),
+    function(key) as.character(reticulate::py_to_r(key)),
+    character(1)
+  )
   out <- lapply(keys, function(k) {
-    lst <- res[[k]]
-    lapply(lst, function(ddf) {
-      if (return_as == "pandas") {
-        ddf$compute()
-      } else {
-        reticulate::py_to_r(ddf$compute())
-      }
-    })
+    .s4h_convert_dataframe_list(res[[k]], return_as)
   })
   names(out) <- keys
   out
@@ -230,28 +209,6 @@ s4h_compare_with_dict <- function(harmonizer,
   }
 }
 
-.s4h_convert_ddf_list <- function(dfs, return_as) {
-  lapply(dfs, function(df) {
-    if (return_as == "dask") {
-      return(df)
-    }
-
-    # If it has compute(), assume it's Dask and convert to pandas
-    if (reticulate::py_has_attr(df, "compute")) {
-      df_pandas <- df$compute()
-    } else {
-      # Otherwise, assume it's already pandas
-      df_pandas <- df
-    }
-
-    if (return_as == "pandas") {
-      return(df_pandas)
-    } else {
-      return(reticulate::py_to_r(df_pandas))
-    }
-  })
-}
-
 #' Select Rows/Columns with `Harmonizer.s4h_data_selector()`
 #'
 #' @param harmonizer Python `Harmonizer` object (must have \code{dict_df}, \code{categories},
@@ -266,7 +223,7 @@ s4h_data_selector <- function(harmonizer,
                               return_as = c("dask", "pandas", "data.frame")) {
   return_as <- match.arg(return_as)
   res <- harmonizer$s4h_data_selector(ddfs)
-  .s4h_convert_ddf_list(res, return_as)
+  .s4h_convert_dataframe_list(res, return_as)
 }
 
 #' Join Multiple Dask DataFrames with `Harmonizer.s4h_join_data()`
