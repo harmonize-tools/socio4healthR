@@ -1,118 +1,129 @@
-# Internal environment where we store the Python module
-.s4h_module <- NULL
-.s4h_python_checked <- FALSE
+.s4h_modules <- new.env(parent = emptyenv())
 
-# Internal function: check if Python and socio4health are available
-.s4h_check_python <- function() {
-  # Check if Python is available at all
-  if (!reticulate::py_available()) {
+.s4h_prefer_managed_python <- function() {
+  explicit_selection <- nzchar(Sys.getenv("RETICULATE_PYTHON")) ||
+    nzchar(Sys.getenv("RETICULATE_PYTHON_ENV")) ||
+    nzchar(Sys.getenv("RETICULATE_USE_MANAGED_VENV"))
+
+  if (!explicit_selection) {
+    Sys.setenv(RETICULATE_USE_MANAGED_VENV = "yes")
+  }
+}
+
+.s4h_declare_python_requirements <- function() {
+  reticulate::py_require(
+    packages = c(
+      "socio4health>=1.0.7,<2",
+      "pandas>=2,<3",
+      "torch==2.8.0; sys_platform == 'win32'",
+      "torchvision==0.23.0; sys_platform == 'win32'",
+      "torchaudio==2.8.0; sys_platform == 'win32'"
+    ),
+    python_version = ">=3.10,<4"
+  )
+}
+
+.s4h_get_module <- function(module = "socio4health") {
+  if (exists(module, envir = .s4h_modules, inherits = FALSE)) {
+    return(get(module, envir = .s4h_modules, inherits = FALSE))
+  }
+
+  imported <- tryCatch(
+    reticulate::import(module, delay_load = FALSE, convert = FALSE),
+    error = function(e) {
+      stop(
+        "Could not load the Python module '", module, "'.\n",
+        "socio4healthR declares and installs its Python requirements automatically, ",
+        "unless a user-selected Python environment overrides the managed environment.\n",
+        "Original error: ", conditionMessage(e),
+        call. = FALSE
+      )
+    }
+  )
+
+  assign(module, imported, envir = .s4h_modules)
+  imported
+}
+
+.s4h_check_python <- function(initialize = FALSE) {
+  if (isTRUE(initialize)) {
+    .s4h_get_module()
+  }
+
+  initialized <- reticulate::py_available(initialize = FALSE)
+  requirements <- reticulate::py_require()
+
+  if (!initialized) {
     return(list(
+      python_initialized = FALSE,
       python_available = FALSE,
-      socio4health_available = FALSE,
-      message = "Python is not available in your system."
+      socio4health_available = NA,
+      requirements = requirements,
+      message = paste(
+        "Python has not been initialized.",
+        "The managed environment will be provisioned automatically on first use."
+      )
     ))
   }
 
-  # Check if socio4health is installed
-  socio4health_available <- reticulate::py_module_available("socio4health")
-
-  return(list(
+  list(
+    python_initialized = TRUE,
     python_available = TRUE,
-    socio4health_available = socio4health_available,
-    python_version = reticulate::py_version(),
-    python_executable = reticulate::py_exe()
-  ))
-}
-
-# Internal function: get the socio4health module (Python)
-.s4h_get_module <- function() {
-  if (is.null(.s4h_module)) {
-    if (!reticulate::py_module_available("socio4health")) {
-      stop(
-        "The Python module 'socio4health' is not available in the current environment.\n",
-        "Manually install the Python package:\n",
-        "  pip install socio4health\n",
-        "\n",
-        "Or configure an existing environment where it is installed:\n",
-        "  reticulate::use_condaenv('socio4health', required = TRUE)\n",
-        "  reticulate::use_virtualenv('path/to/venv', required = TRUE)\n",
-        "  reticulate::use_python('path/to/python.exe', required = TRUE)"
-      )
-    }
-    .s4h_module <<- reticulate::import("socio4health", delay_load = TRUE)
-  }
-  .s4h_module
+    socio4health_available = reticulate::py_module_available("socio4health"),
+    python_version = as.character(reticulate::py_version()),
+    python_executable = reticulate::py_exe(),
+    requirements = requirements
+  )
 }
 
 #' Check Python Environment Status
 #'
-#' Displays information about the current Python environment and socio4health availability.
+#' Reports the active Python configuration and the requirements declared by
+#' socio4healthR. By default this function does not initialize Python or
+#' download dependencies.
+#'
+#' @param initialize Logical. If `TRUE`, initialize the managed Python
+#'   environment and install missing requirements before reporting its status.
 #'
 #' @return Invisibly returns a list with environment information.
 #'
 #' @examples
-#' \dontrun{
 #' s4h_check_env()
+#' \dontrun{
+#' # Provision the complete Python environment immediately.
+#' s4h_check_env(initialize = TRUE)
 #' }
 #'
 #' @export
-s4h_check_env <- function() {
-  check_result <- .s4h_check_python()
+s4h_check_env <- function(initialize = FALSE) {
+  if (!is.logical(initialize) || length(initialize) != 1L || is.na(initialize)) {
+    stop("`initialize` must be TRUE or FALSE.", call. = FALSE)
+  }
 
-  cat("Python Environment Status:\n")
-  cat(paste(rep("-", nchar("Python Environment Status:")), collapse = ""), "\n")
+  check_result <- .s4h_check_python(initialize = initialize)
 
-  if (check_result$python_available) {
-    cat("Python is available\n")
-    cat("  Python version: ", check_result$python_version, "\n", sep = "")
-    cat("  Python executable: ", check_result$python_executable, "\n", sep = "")
+  cat("Python environment status:\n")
+  cat("--------------------------\n")
 
-    if (check_result$socio4health_available) {
-      cat("socio4health is installed and ready to use\n")
-    } else {
-      cat("socio4health is NOT installed\n")
-      cat("  Run: socio4healthR::s4h_setup()\n")
-    }
+  if (!check_result$python_initialized) {
+    cat(check_result$message, "\n")
+    cat("Run `s4h_check_env(initialize = TRUE)` to provision it now.\n")
   } else {
-    cat("Python is NOT available on your system\n")
-    cat("  Please install Python from https://www.python.org/\n")
+    cat("Python is initialized\n")
+    cat("  Version: ", check_result$python_version, "\n", sep = "")
+    cat("  Executable: ", check_result$python_executable, "\n", sep = "")
+    cat(
+      "  socio4health: ",
+      if (isTRUE(check_result$socio4health_available)) "available" else "not available",
+      "\n",
+      sep = ""
+    )
   }
 
   invisible(check_result)
 }
 
-#' @import reticulate
 .onLoad <- function(libname, pkgname) {
-  # Configure environment if specified
-  if (Sys.getenv("SOCIO4HEALTH_CONDAENV") != "") {
-    tryCatch({
-      reticulate::use_condaenv(Sys.getenv("SOCIO4HEALTH_CONDAENV"), required = FALSE)
-    }, error = function(e) {
-      warning("Could not load specified conda environment: ", Sys.getenv("SOCIO4HEALTH_CONDAENV"))
-    })
-  }
-
-  if (Sys.getenv("SOCIO4HEALTH_VIRTUALENV") != "") {
-    tryCatch({
-      reticulate::use_virtualenv(Sys.getenv("SOCIO4HEALTH_VIRTUALENV"), required = FALSE)
-    }, error = function(e) {
-      warning("Could not load specified virtual environment: ", Sys.getenv("SOCIO4HEALTH_VIRTUALENV"))
-    })
-  }
-
-  if (Sys.getenv("RETICULATE_PYTHON") != "") {
-    tryCatch({
-      reticulate::use_python(Sys.getenv("RETICULATE_PYTHON"), required = FALSE)
-    }, error = function(e) {
-      warning("Could not use specified Python executable: ", Sys.getenv("RETICULATE_PYTHON"))
-    })
-  }
-
-  # Try to load module silently
-  .s4h_python_checked <<- TRUE
-  tryCatch({
-    .s4h_get_module()
-  }, error = function(e) {
-    # Silently continue; error will be raised when module is actually needed
-  })
+  .s4h_prefer_managed_python()
+  .s4h_declare_python_requirements()
 }
