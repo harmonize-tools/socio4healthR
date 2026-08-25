@@ -41,4 +41,17 @@ test_that("wrappers preserve Dask, pandas, and R return types", {
   )
   expect_named(harmonized, "CO")
   expect_s3_class(harmonized$CO[[1]], "data.frame")
+
+  expect_equal(
+    s4h_get_data_info_enum("CountryEnum", "COLOMBIA"),
+    "COL"
+  )
+  expect_length(
+    s4h_get_data_info_enum("BraColnamesEnum", "PNADC"),
+    420L
+  )
+  expect_length(
+    s4h_get_data_info_enum("BraColspecsEnum", "PNADC"),
+    420L
+  )
 })
