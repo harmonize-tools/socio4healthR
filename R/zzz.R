@@ -13,7 +13,7 @@
 .s4h_declare_python_requirements <- function() {
   reticulate::py_require(
     packages = c(
-      "socio4health>=1.0.7,<2",
+      "socio4health[scraping,ml,geo]>=1.0.9,<2",
       "pandas>=2,<3",
       "torch==2.8.0; sys_platform == 'win32'",
       "torchvision==0.23.0; sys_platform == 'win32'",
