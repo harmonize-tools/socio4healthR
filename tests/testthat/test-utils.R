@@ -36,6 +36,8 @@ test_that("s4h_translate_column validates column and converts", {
   expect_error(s4h_translate_column(list(a = 1), "a"), "data.frame")
   expect_error(s4h_translate_column(data, "missing"), "name a column")
   expect_error(s4h_translate_column(data, "text", NA_character_), "language")
+  expect_error(s4h_translate_column(data, "text", "es"), "only translates to English")
+  expect_error(s4h_translate_column(data, "text", "eng"), "language")
 
   with_mocked_bindings(
     .s4h_get_module = function(module) fake_module,
@@ -68,11 +70,18 @@ test_that("s4h_get_classifier returns the Python object", {
 })
 
 test_that("s4h_classify_rows validates columns and converts", {
-  fake_module <- list(s4h_classify_rows = function(...) "py_res")
+  captured <- NULL
+  fake_module <- list(s4h_classify_rows = function(...) {
+    captured <<- list(...)
+    "py_res"
+  })
   data <- data.frame(a = "x", b = "y", c = "z")
 
   expect_error(s4h_classify_rows(list(a = 1), "a", "b", "c"), "data.frame")
   expect_error(s4h_classify_rows(data, "a", "b", "missing"), "must name columns")
+  expect_error(s4h_classify_rows(data, c("a", "b")), "must name columns")
+  expect_error(s4h_classify_rows(data, NULL), "must name columns")
+  expect_error(s4h_classify_rows(data, "a", character()), "must name columns")
 
   with_mocked_bindings(
     .s4h_get_module = function(module) fake_module,
@@ -94,6 +103,13 @@ test_that("s4h_classify_rows validates columns and converts", {
             ),
             "r_res"
           )
+          expect_equal(s4h_classify_rows(data, "a"), "r_res")
+          expect_equal(captured$col1, "a")
+          expect_null(captured$col2)
+          expect_null(captured$col3)
+          expect_equal(s4h_classify_rows(data, "a", "b"), "r_res")
+          expect_equal(captured$col2, "b")
+          expect_null(captured$col3)
         }
       )
     }

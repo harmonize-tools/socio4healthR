@@ -35,6 +35,9 @@ test_that("s4h_extractor validates and passes current Python arguments", {
       expect_equal(result$args$down_ext, ".csv")
       expect_equal(result$args$encoding, "utf8")
       expect_true(result$args$delete_zip_after)
+      expect_equal(result$args$on_bad_lines, "warn")
+      expect_equal(s4h_extractor("x", on_bad_lines = "skip")$args$on_bad_lines, "skip")
+      expect_error(s4h_extractor("x", on_bad_lines = "invalid"), "arg")
 
       expect_error(s4h_extractor(character()), "input_path")
       expect_error(s4h_extractor("x", delete_zip_after = NA), "delete_zip_after")
