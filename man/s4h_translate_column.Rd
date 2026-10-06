@@ -2,7 +2,7 @@
 % Please edit documentation in R/utils.R
 \name{s4h_translate_column}
 \alias{s4h_translate_column}
-\title{Translate a Text Column with Google Translate}
+\title{Translate a Text Column to English with a Local Model}
 \usage{
 s4h_translate_column(data, column, language = "en")
 }
@@ -11,11 +11,15 @@ s4h_translate_column(data, column, language = "en")
 
 \item{column}{Name of the column to translate.}
 
-\item{language}{Target language code (e.g., \code{"en"}).}
+\item{language}{Target language code. Only English (\code{"en"}) is supported.}
 }
 \value{
 R data.frame with a new translated column.
 }
 \description{
-Translate a Text Column with Google Translate
+Translates Spanish or Portuguese using
+\code{Helsinki-NLP/opus-mt-ROMANCE-en}. The model is downloaded on first use
+and reused from the local Hugging Face cache. Repeated texts are cached
+within the Python process. Texts of at least 5000 characters are truncated
+to 4500 characters by Python.
 }

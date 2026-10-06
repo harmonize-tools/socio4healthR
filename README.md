@@ -126,11 +126,18 @@ contributors](https://img.shields.io/github/contributors/harmonize-tools/socio4h
 - <a href="https://requests.readthedocs.io/en/latest/">requests</a>
 - <a href="https://pypi.org/project/appdirs/">appdirs</a>
 - <a href="https://pypi.org/project/pyarrow/">pyarrow</a>
-- <a href="https://pypi.org/project/deep-translator/">deep_translator</a>
+- <a href="https://pypi.org/project/sentencepiece/">sentencepiece</a>
+- <a href="https://pypi.org/project/sacremoses/">sacremoses</a>
 - <a href="https://pypi.org/project/transformers/">transformers</a>
 - <a href="https://pypi.org/project/pytest/">pytest</a>
 
 ## Installation
+
+Translation uses the local `Helsinki-NLP/opus-mt-ROMANCE-en` model for Spanish
+or Portuguese text and supports English (`language = "en"`) as its target.
+The first translation downloads the model; later calls reuse the local cache.
+If you select your own Python environment, update it with
+`python -m pip install --upgrade "socio4health[scraping,ml,geo]>=1.0.9,<2"`.
 
 ### Requirements
 
@@ -139,7 +146,8 @@ Before installing socio4healthR, ensure you have:
 - **R** >= 4.1.0
 - An internet connection the first time Python functionality is used
 
-Python >= 3.10 and the complete `socio4health` dependency stack are managed
+Python >= 3.10, `socio4health` >= 1.0.9, and its scraping, machine learning,
+and geospatial dependencies are managed
 automatically by `reticulate`. You do not need to create a Python environment
 or run `pip install` manually. On Windows, the package selects the compatible
 PyTorch 2.8 release to avoid the DLL initialization regression in newer

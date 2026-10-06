@@ -7,8 +7,8 @@
 s4h_classify_rows(
   data,
   col1,
-  col2,
-  col3,
+  col2 = NULL,
+  col3 = NULL,
   new_column_name = "category",
   MODEL_PATH = "./bert_finetuned_classifier"
 )
@@ -16,7 +16,9 @@ s4h_classify_rows(
 \arguments{
 \item{data}{R data.frame with text columns.}
 
-\item{col1, col2, col3}{Names of the text columns.}
+\item{col1}{Name of the first text column.}
+
+\item{col2, col3}{Optional text column names. Use \code{NULL} to omit them.}
 
 \item{new_column_name}{Name of the new column with the category.}
 

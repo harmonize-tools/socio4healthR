@@ -20,7 +20,8 @@ s4h_extractor(
   engine = NULL,
   sheet_name = NULL,
   geodriver = NULL,
-  delete_zip_after = FALSE
+  delete_zip_after = FALSE,
+  on_bad_lines = c("warn", "error", "skip")
 )
 }
 \arguments{
@@ -56,6 +57,9 @@ s4h_extractor(
 
 \item{delete_zip_after}{Logical. Delete downloaded ZIP archives after they
 have been extracted.}
+
+\item{on_bad_lines}{How to handle malformed CSV rows: \code{"warn"}
+(default), \code{"error"}, or \code{"skip"}.}
 }
 \value{
 Python \code{Extractor} object.
