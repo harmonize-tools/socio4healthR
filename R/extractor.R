@@ -43,6 +43,8 @@ s4h_get_default_data_dir <- function() {
 #' @param geodriver Driver for reading geospatial files.
 #' @param delete_zip_after Logical. Delete downloaded ZIP archives after they
 #'   have been extracted.
+#' @param on_bad_lines How to handle malformed CSV rows: \code{"warn"}
+#'   (default), \code{"error"}, or \code{"skip"}.
 #'
 #' @return Python `Extractor` object.
 #'
@@ -71,7 +73,9 @@ s4h_extractor <- function(input_path,
                           engine = NULL,
                           sheet_name = NULL,
                           geodriver = NULL,
-                          delete_zip_after = FALSE) {
+                          delete_zip_after = FALSE,
+                          on_bad_lines = c("warn", "error", "skip")) {
+  on_bad_lines <- match.arg(on_bad_lines)
   if (!is.character(input_path) || length(input_path) != 1L || is.na(input_path)) {
     stop("`input_path` must be a single character string.", call. = FALSE)
   }
@@ -99,7 +103,8 @@ s4h_extractor <- function(input_path,
     engine      = engine,
     sheet_name       = sheet_name,
     geodriver        = geodriver,
-    delete_zip_after = delete_zip_after
+    delete_zip_after = delete_zip_after,
+    on_bad_lines     = on_bad_lines
   )
 }
 
