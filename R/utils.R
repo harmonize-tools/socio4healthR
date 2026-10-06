@@ -46,11 +46,17 @@ s4h_standardize_dict <- function(raw_dict) {
   reticulate::py_to_r(res)
 }
 
-#' Translate a Text Column with Google Translate
+#' Translate a Text Column to English with a Local Model
+#'
+#' Translates Spanish or Portuguese using
+#' \code{Helsinki-NLP/opus-mt-ROMANCE-en}. The model is downloaded on first use
+#' and reused from the local Hugging Face cache. Repeated texts are cached
+#' within the Python process. Texts of at least 5000 characters are truncated
+#' to 4500 characters by Python.
 #'
 #' @param data R data.frame.
 #' @param column Name of the column to translate.
-#' @param language Target language code (e.g., \code{"en"}).
+#' @param language Target language code. Only English (\code{"en"}) is supported.
 #'
 #' @return R data.frame with a new translated column.
 #' @export
@@ -62,8 +68,9 @@ s4h_translate_column <- function(data, column, language = "en") {
       !column %in% names(data)) {
     stop("`column` must name a column in `data`.", call. = FALSE)
   }
-  if (!is.character(language) || length(language) != 1L || is.na(language)) {
-    stop("`language` must be a single character string.", call. = FALSE)
+  if (!is.character(language) || length(language) != 1L || is.na(language) ||
+      tolower(language) != "en") {
+    stop("`language` must be 'en'; the local model only translates to English.", call. = FALSE)
   }
   utils_mod <- .s4h_get_module("socio4health.utils.harmonizer_utils")
   df_py <- reticulate::r_to_py(data)
@@ -89,7 +96,8 @@ s4h_get_classifier <- function(MODEL_PATH = "./bert_finetuned_classifier") {
 #' Wrapper for `s4h_classify_rows()` in Python.
 #'
 #' @param data R data.frame with text columns.
-#' @param col1,col2,col3 Names of the text columns.
+#' @param col1 Name of the first text column.
+#' @param col2,col3 Optional text column names. Use \code{NULL} to omit them.
 #' @param new_column_name Name of the new column with the category.
 #' @param MODEL_PATH Path to the model (defaults to \code{"./bert_finetuned_classifier"}).
 #'
@@ -97,17 +105,21 @@ s4h_get_classifier <- function(MODEL_PATH = "./bert_finetuned_classifier") {
 #' @export
 s4h_classify_rows <- function(data,
                               col1,
-                              col2,
-                              col3,
+                              col2 = NULL,
+                              col3 = NULL,
                               new_column_name = "category",
                               MODEL_PATH = "./bert_finetuned_classifier") {
   if (!is.data.frame(data)) {
     stop("`data` must be an R data.frame.", call. = FALSE)
   }
-  text_columns <- c(col1, col2, col3)
-  if (!is.character(text_columns) || length(text_columns) != 3L ||
-      anyNA(text_columns) || any(!text_columns %in% names(data))) {
-    stop("`col1`, `col2`, and `col3` must name columns in `data`.", call. = FALSE)
+  valid_column <- function(column) {
+    is.character(column) && length(column) == 1L && !is.na(column) &&
+      column %in% names(data)
+  }
+  if (!valid_column(col1) ||
+      (!is.null(col2) && !valid_column(col2)) ||
+      (!is.null(col3) && !valid_column(col3))) {
+    stop("`col1`, and non-NULL `col2` and `col3`, must name columns in `data`.", call. = FALSE)
   }
   utils_mod <- .s4h_get_module("socio4health.utils.harmonizer_utils")
   df_py <- reticulate::r_to_py(data)
