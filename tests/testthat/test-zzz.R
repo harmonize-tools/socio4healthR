@@ -11,7 +11,9 @@ test_that("Python requirements are declared without initializing Python", {
       expect_equal(
         captured$packages,
         c(
-          "socio4health[scraping,ml,geo]>=1.0.9,<2",
+          "socio4health[ml,geo]>=1.0.11,<2",
+          "Scrapy==2.14.1",
+          "Twisted<25.0",
           "pandas>=2,<3",
           "torch==2.8.0; sys_platform == 'win32'",
           "torchvision==0.23.0; sys_platform == 'win32'",
@@ -107,7 +109,7 @@ test_that(".s4h_get_module reports import failures", {
 
 test_that(".s4h_check_python distinguishes pending and initialized environments", {
   manifest <- list(
-    packages = "socio4health[scraping,ml,geo]>=1.0.9,<2",
+    packages = c("socio4health[ml,geo]>=1.0.11,<2", "Scrapy==2.14.1", "Twisted<25.0"),
     python_version = ">=3.10,<4"
   )
 

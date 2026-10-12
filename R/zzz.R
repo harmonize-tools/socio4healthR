@@ -13,7 +13,10 @@
 .s4h_declare_python_requirements <- function() {
   reticulate::py_require(
     packages = c(
-      "socio4health[scraping,ml,geo]>=1.0.11,<2",
+      # The published scraping extra pins 2.11.1, unlike upstream requirements.txt.
+      "socio4health[ml,geo]>=1.0.11,<2",
+      "Scrapy==2.14.1",
+      "Twisted<25.0",
       "pandas>=2,<3",
       "torch==2.8.0; sys_platform == 'win32'",
       "torchvision==0.23.0; sys_platform == 'win32'",
