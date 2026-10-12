@@ -1,0 +1,250 @@
+---
+title: "Hands-on with socio4health: effects of hydrometeorologigcal hazards and urbanization on dengue risk in Brazil"
+author: "socio4healthR authors"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Hands-on with socio4health: effects of hydrometeorological hazards and urbanization on dengue risk in Brazil}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  eval = TRUE
+)
+```
+
+<img src="https://raw.githubusercontent.com/harmonize-tools/socio4health/main/docs/source/_static/image.png" alt="image info" height="100" width="100"/>
+
+
+# Hands-on with socio4health: effects of hydrometeorologigcal hazards and urbanization on dengue risk in Brazil 
+
+
+
+**R implementation note:** This R Markdown vignette implements the corresponding Python library vignette; only the code blocks have been adapted to R.
+
+**Run the tutorial via free cloud platforms:**  [![Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/harmonize-tools/socio4health/HEAD?urlpath=%2Fdoc%2Ftree%2Fdocs%2Fsource%2Fnotebooks%2Fexample_brazil.ipynb) <a target="_blank" href="https://colab.research.google.com/github/harmonize-tools/socio4health/blob/main/docs/source/notebooks/example_brazil.ipynb">
+  <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/>
+</a>
+
+This notebook provides a real-world example of how to use **socio4health** to **retrieve**, **harmonize** and **analyze** **socioeconomic and demographic**  variables, such as the level of urbanization and access to water supply in Brazil, to recreate the dataset used in the publication *Combined effects of hydrometeorological hazards and urbanisation on dengue risk in Brazil: a spatiotemporal modelling study* by Lowe et al., published in *The Lancet Planetary Health* in 2021 ([DOI](https://doi.org/10.1016/S2542-5196(20)30292-8)). The study evaluated how the association between hydrometeorological events and **dengue** risk varies with these variables. This tutorial assumes an **intermediate** or **advanced** understanding of **Python** and data manipulation.
+
+## Setting up the environment
+
+To run this notebook, you need to have the following prerequisites:
+
+- **Python 3.10+**
+
+Additionally, you need to install the `socio4health` and `pandas` package, which can be done using ``pip``:
+
+
+
+```{r install}
+remotes::install_github(
+  "harmonize-tools/socio4healthR",
+  force = TRUE,
+  upgrade = "never",
+  build_vignettes = FALSE
+)
+library(socio4healthR)
+s4h_check_env(initialize = TRUE)
+```
+
+## Import Libraries
+
+To perform the data extraction, the `socio4health` library provides the `Extractor` class for data extraction, and the `Harmonizer` class for data harmonization of the retrieved date. `pandas` will be used for data manipulation. Additionally, we will use some utility functions from the `socio4health.utils.harmonizer_utils` module to **standardize** and **translate** the dictionary.
+
+
+```{r libraries}
+library(readxl)
+library(dplyr)
+library(ggplot2)
+vignette_dir <- if (file.exists("raw_dictionary_br_2010.xlsx")) "." else "vignettes"
+```
+
+## 1. Load and standardize the dictionary
+To harmonize the data, provide a dictionary that describes the variables in the dataset. The study retrieved data from the 2010 census, from Instituto Brasileiro de Geografia e Estatística (**IBGE**). The dictionary for the census data can be found [here](https://ftp.ibge.gov.br/Censos/Censo_Demografico_2010/Resultados_Gerais_da_Amostra/Microdados/Documentacao.zip). Follow the steps in the tutorial ["How to Create a Raw Dictionary for Data Harmonization"](https://harmonize-tools.github.io/socio4health/dictionary.html) to create a raw dictionary in Excel format.
+
+This dictionary must be standardized and translated to English. The `socio4health.utils.harmonizer_utils` module provides utility functions to perform these tasks. Additionally, the `socio4health.utils.extractor_utils` module provides utility functions to parse fixed-width file (FWF) dictionaries, which is the format used in the **IBGE** census data.
+
+
+```{r brazil-dictionary}
+raw_dic <- readxl::read_excel(file.path(vignette_dir, "raw_dictionary_br_2010.xlsx"))
+dic <- s4h_standardize_dict(raw_dic)
+# Answer rows do not define fixed-width fields.
+fwf_dic <- raw_dic[
+  !is.na(raw_dic$variable_name) & !is.na(raw_dic$initial_position),
+  c("variable_name", "initial_position", "final_position", "size")
+]
+fwf <- s4h_parse_fwf_dict(as.data.frame(fwf_dic))
+colnames <- fwf$colnames
+colspecs <- fwf$colspecs
+```
+
+This is how the standardized dictionary looks:
+
+```{r brazil-dictionary-output}
+dic
+```
+
+The classification model used in this tutorial is a **BERT model** fine-tuned for the task of classifying survey questions into categories. You can use your own model by providing the path to the model in the `MODEL_PATH` parameter of the `harmonizer_utils.s4h_classify_rows` function.
+
+```{r brazil-translate-classify}
+dic <- s4h_translate_column(dic, "question", language = "en")
+dic <- s4h_translate_column(dic, "description", language = "en")
+dic <- s4h_translate_column(dic, "possible_answers", language = "en")
+dic <- s4h_classify_rows(
+  dic,
+  "question_en",
+  "description_en",
+  "possible_answers_en",
+  new_column_name = "category",
+  MODEL_PATH = "dirreno/harmonize_bert_finetuned_classifier"
+)
+dic
+```
+
+## 2. Extract data from Brazil Census 2010
+
+To extract data, use the `Extractor` class from the `socio4health` library. As in the publication, extract the Brazil Census 2010 dataset from the Brazilian Institute of Geography and Statistics (**IBGE**) website or from a local copy. The dataset is available [here](https://www.ibge.gov.br/estatisticas/sociais/saude/9662-censo-demografico-2010.html?=&t=microdados).
+
+The `Extractor` class requires the following parameters:
+- `input_path`: The `URL` or local path to the data source.
+- `down_ext`: A list of file extensions to download. This can include `.txt`,`.zip`, etc.
+- `output_path`: The local path where the extracted data will be saved.
+- `key_words`: A list of keywords to filter the files to be downloaded. In this case, a regular expression is used to select only the files with a `.zip` extension that contain uppercase letters in their names.
+- `depth`: The depth of the directory structure to traverse when downloading files. A depth of `0` means only the files in the specified directory will be downloaded.
+- `is_fwf`: A boolean indicating whether the files are in fixed-width format (FWF). In this case, the files are in FWF format, so this parameter is set to `True`.
+- `colnames`: A list of column names for the FWF files, extracted from the standardized dictionary.
+- `colspecs`: A list of tuples indicating the start and end positions of each column in the FWF files, extracted from the standardized dictionary.
+
+
+```{r brazil-extract}
+bra_online_extractor <- s4h_extractor(
+  input_path = paste0(
+    "https://ftp.ibge.gov.br/Censos/Censo_Demografico_2010/",
+    "Resultados_Gerais_da_Amostra/Microdados/"
+  ),
+  down_ext = list(".txt", ".zip"),
+  output_path = file.path(vignette_dir, "IBGE_2010_"),
+  key_words = list("^[A-Z0-9_]+\\.zip$"),
+  depth = 0L,
+  is_fwf = TRUE,
+  colnames = colnames,
+  colspecs = colspecs
+)
+bra_census_2010 <- s4h_extract(
+  bra_online_extractor,
+  return_as = "dask"
+)
+```
+
+## 3. Harmonize the data
+
+Use the Harmonizer class from the **socio4health** library to harmonize the data. First, set the similarity threshold to `0.9`, meaning that only variables with a similarity score of `0.9` or higher will be considered for harmonization. Next, use the `s4h_vertical_merge` method to merge the dataframes vertically.
+
+```{r brazil-merge}
+harmonizer <- s4h_harmonizer(
+  dict_df = dic,
+  categories = list("Business"),
+  key_col = "V0001"
+)
+dfs <- s4h_vertical_merge(
+  harmonizer,
+  bra_census_2010,
+  return_as = "dask",
+  overlap_threshold = 0.9,
+  method = "union"
+)
+```
+
+After merging the dataframes, set the dictionary and the categories of interest. In this case, we are interested in the `"Business"` category. Then, use the `s4h_data_selector` method to filter the dataframes based on the dictionary, categories, and a key column (in this case `'V0001'`, which represents the state code). The `s4h_data_selector` method returns a list of **filtered dataframes**.
+
+```{r brazil-select}
+filtered_ddfs <- s4h_data_selector(
+  harmonizer,
+  dfs,
+  return_as = "dask"
+)
+length(filtered_ddfs)
+filtered_ddfs[[1L]]$head()
+```
+
+Finally, we can perform some **analysis** on the harmonized data. In this case, we will calculate the total population by state (`V0001`) using the variable `V0401`, which represents the total population in each census tract. We will then create a horizontal bar plot to visualize the population distribution across states using `matplotlib`.
+
+```{r brazil-analysis, fig.width=11, fig.height=7}
+dd <- reticulate::import("dask.dataframe", convert = FALSE)
+pd <- reticulate::import("pandas", convert = FALSE)
+
+# Convertir por particion evita la ruta problematica de categorize().
+census <- filtered_ddfs[[1L]]$map_partitions(
+  pd$DataFrame$astype,
+  dtype = reticulate::dict(
+    V0001 = "string",
+    V0401 = "string"
+  )
+)
+census <- census[list("V0001", "V0401")]
+
+census <- census$assign(
+  V0401 = dd$to_numeric(
+    census["V0401"],
+    errors = "coerce"
+  )$astype("float64")$fillna(0)
+)
+
+totals <- census$groupby("V0001")["V0401"]$sum(
+  split_out = 1L
+)
+
+# Solo el resumen final pasa a ser un objeto R.
+population <- reticulate::py_to_r(
+  totals$compute()$reset_index()
+)
+population <- dplyr::filter(population, V0401 > 0)
+
+state_row <- dic[dic$variable_name == "V0001", ]
+codes <- trimws(strsplit(state_row$value[[1L]], ";")[[1L]])
+states <- trimws(
+  strsplit(state_row$possible_answers[[1L]], ";")[[1L]]
+)
+codes <- as.character(as.integer(as.numeric(codes)))
+
+if (length(codes) != length(states)) {
+  stop("Los codigos y nombres de estados no coinciden.")
+}
+
+state_names <- stats::setNames(states, codes)
+
+population <- population |>
+  dplyr::mutate(
+    state = dplyr::coalesce(
+      unname(state_names[as.character(V0001)]),
+      as.character(V0001)
+    ),
+    label = sprintf(
+      "%.1f M (%.1f%%)", V0401 / 1e6, 100 * V0401 / sum(V0401)
+    )
+  )
+
+ggplot2::ggplot(
+  population,
+  ggplot2::aes(x = reorder(state, V0401), y = V0401)
+) +
+  ggplot2::geom_col(fill = "#287D64") +
+  ggplot2::geom_text(ggplot2::aes(label = label), hjust = -0.1, size = 3) +
+  ggplot2::coord_flip() +
+  ggplot2::scale_y_continuous(
+    labels = scales::label_number(scale = 1e-6, suffix = " M"),
+    expand = ggplot2::expansion(mult = c(0, 0.35))
+  ) +
+  ggplot2::labs(
+    title = "Population by State",
+    x = NULL,
+    y = "Population"
+  ) +
+  ggplot2::theme_minimal()
+```
+

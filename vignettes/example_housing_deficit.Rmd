@@ -1,0 +1,349 @@
+---
+title: "Preparing housing-deficit inputs from Colombia's Quality of Life Survey"
+author: "socio4healthR authors"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Preparing housing-deficit inputs from Colombia's Quality of Life Survey}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>", eval = TRUE)
+```
+
+<img src="https://raw.githubusercontent.com/harmonize-tools/socio4health/main/docs/source/_static/image.png" alt="socio4health logo" height="100" width="100"/>
+
+# Hands-on with socio4health: preparing housing-deficit inputs from Colombia's Quality of Life Survey
+
+**R implementation note:** This R Markdown vignette implements the corresponding Python library vignette; only the code blocks have been adapted to R.
+
+**Run the tutorial via free cloud platforms:** [![Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/harmonize-tools/socio4health/HEAD?urlpath=%2Fdoc%2Ftree%2Fdocs%2Fsource%2Fnotebooks%2Fexample_housing_deficit.ipynb) <a target="_blank" href="https://colab.research.google.com/github/harmonize-tools/socio4health/blob/main/docs/source/notebooks/example_housing_deficit.ipynb">
+  <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/>
+</a>
+
+This notebook provides a real-world example of how to use **socio4health** to **retrieve** and **prepare** housing and household microdata from Colombia's Quality of Life Survey (**ECV**) for 2010–2017. The workflow creates annual input tables for the subsequent calculation of Colombia's housing deficit. It was developed as part of the data-preparation exercise associated with the unpublished manuscript *An Aedes-borne Diseases Vulnerability Indicator: Encompassing Viral Suitability, Socioeconomic Sensitivity, and Lack of Health System Resilience in the Latin America and the Caribbean Region and Colombia* by Umaña-Caro, J, et. al. Because the manuscript has not yet been published, no journal citation or DOI is provided. This tutorial assumes an **intermediate** or **advanced** understanding of **Python** and data manipulation.
+
+## Setting up the environment
+
+To run this notebook, you need to have the following prerequisite:
+
+- **Python 3.10+**
+
+Install `socio4health` with its scraping dependencies using ``pip``:
+
+```{r install}
+remotes::install_github(
+  "harmonize-tools/socio4healthR",
+  force = TRUE,
+  upgrade = "never",
+  build_vignettes = FALSE
+)
+library(socio4healthR)
+s4h_check_env(initialize = TRUE)
+```
+
+## 1. Import libraries
+
+The `Extractor` class from **socio4health** retrieves and reads the ECV files published by DANE. `pandas` is used to manipulate the resulting DataFrames, while `reduce` supports repeated merges by household directory identifier. `Path` and `uuid` are used to create a separate output directory for each run.
+
+```{r libraries}
+library(dplyr)
+vignette_dir <- if (dir.exists("vignettes")) "vignettes" else "."
+```
+
+## 2. Configure the ECV data
+
+The `ecv_data` dictionary maps each year from 2010 to 2017 to its corresponding DANE microdata download page. The `vivienda_cols` and `hogar_cols` lists define the identifiers, geographic fields, and housing- and household-level variables retained by this workflow.
+
+Two dictionaries, `dfs_vivienda_by_year` and `dfs_hogar_by_year`, are initialized to store the processed DataFrames separately for each year and unit of observation.
+
+```{r ecv-configure}
+ecv_data <- c(
+  "2010" = "https://microdatos.dane.gov.co/index.php/catalog/201/get-microdata",
+  "2011" = "https://microdatos.dane.gov.co/index.php/catalog/196/get-microdata",
+  "2012" = "https://microdatos.dane.gov.co/index.php/catalog/124/get-microdata",
+  "2013" = "https://microdatos.dane.gov.co/index.php/catalog/213/get-microdata",
+  "2014" = "https://microdatos.dane.gov.co/index.php/catalog/342/get-microdata",
+  "2015" = "https://microdatos.dane.gov.co/index.php/catalog/419/get-microdata",
+  "2016" = "https://microdatos.dane.gov.co/index.php/catalog/456/get-microdata",
+  "2017" = "https://microdatos.dane.gov.co/index.php/catalog/544/get-microdata"
+)
+vivienda_cols <- c(
+  "DIRECTORIO", "YEAR", "CLASE", "REGION", "P1_DEPARTAMENTO", "P1_MUNICIPIO",
+  "P4000", "P4005", "P4015", "P8520S1", "P8520S3", "P8520S4", "P8520S5",
+  "P70", "CANT_HOGARES_VIVIENDA"
+)
+hogar_cols <- c(
+  "DIRECTORIO", "YEAR", "CLASE", "REGION", "P1_DEPARTAMENTO", "P1_MUNICIPIO",
+  "P205", "CANT_PERSONAS_HOGAR", "P5010", "P8526", "P8530", "P8532", "P764"
+)
+dfs_vivienda_by_year <- list()
+dfs_hogar_by_year <- list()
+
+# Select only the required columns before converting each annual table to R.
+extract_ecv <- function(year, url, key_words, suffix, keep) {
+  extractor <- s4h_extractor(
+    input_path = url, down_ext = c(".sav", ".zip"), sep = " ",
+    output_path = file.path(download_dir, paste0(suffix, "_", year)),
+    depth = 0L, key_words = as.list(key_words), delete_zip_after = TRUE
+  )
+  extracted <- s4h_extract(extractor, return_as = "dask")
+  lapply(extracted, function(df) {
+    columns <- toupper(trimws(unlist(reticulate::py_to_r(df$columns$to_list()))))
+    df$columns <- as.list(columns)
+    aliases <- c(
+      CANT_HOG_COMPLETOS = "CANT_HOGARES_VIVIENDA",
+      DPTO = "P1_DEPARTAMENTO", P3 = "CLASE"
+    )
+    for (old_name in names(aliases)) {
+      if (old_name %in% columns && !aliases[[old_name]] %in% columns) {
+        columns[columns == old_name] <- aliases[[old_name]]
+      }
+    }
+    df$columns <- as.list(columns)
+    df <- df$assign(YEAR = as.integer(year))
+    selected <- intersect(c("YEAR", keep), c(columns, "YEAR"))
+    selected_df <- df[as.list(selected)]
+    if (reticulate::py_has_attr(selected_df, "compute")) {
+      selected_df <- selected_df$compute()
+    }
+    reticulate::py_to_r(selected_df)
+  })
+}
+
+merge_annual_tables <- function(tables, keep) {
+  if (!length(tables)) return(NULL)
+  common <- setdiff(Reduce(intersect, lapply(tables, names)), "DIRECTORIO")
+  if (length(tables) > 1L) {
+    for (i in seq.int(2L, length(tables))) {
+      tables[[i]] <- select(tables[[i]], -any_of(common))
+    }
+  }
+  merged <- Reduce(function(left, right) {
+    full_join(left, right, by = "DIRECTORIO", suffix = c("_x", "_y"))
+  }, tables)
+  select(merged, any_of(keep))
+}
+```
+
+## 3. Extract housing and household data by year
+
+Use the `Extractor` class to retrieve the `.sav` and `.zip` files required for every ECV edition. Because the archive names vary across years, year-specific regular expressions identify files related to housing identification, housing characteristics, household services, and household composition.
+
+The `Extractor` is configured with the following parameters:
+
+- `input_path`: the DANE microdata download page for the corresponding year.
+- `down_ext`: the file extensions accepted by the extraction process.
+- `output_path`: the local directory where the files for each year are downloaded and processed.
+- `key_words`: regular expressions used to select the relevant files.
+- `depth`: the number of link levels traversed from the supplied page.
+- `delete_zip_after`: whether downloaded ZIP files are removed after extraction.
+
+After extraction, column names are standardized to uppercase and known naming differences are reconciled. Each DataFrame is classified as housing- or household-level according to the variables it contains. Tables from the same year are then merged on `DIRECTORIO`, filtered to the configured columns, and stored for subsequent processing.
+
+```{r ecv-extract}
+for (year in names(ecv_data)) {
+  message(year, ": ", ecv_data[[year]])
+  key_words <- if (year == "2011") {
+    c(
+      "(?i)identificaci[o\u00f3]n.*vivienda",
+      "(?i)vivienda.*identificaci[o\u00f3]n",
+      "(?i)datos[\\s_]+de[\\s_]+identificaci[o\u00f3]n",
+      "(?i)datos[\\s_]+de[\\s_]+la[\\s_]+vivienda",
+      "(?i)servicios[\\s_]+(?:del[\\s_]+)?hogar"
+    )
+  } else {
+    c(
+      "(?i)datos[\\s_]+(?:de[\\s_]+)?identificaci[o\u00f3]n",
+      "(?i)servicios[\\s_]+(?:del[\\s_]+)?hogar",
+      "(?i)composici[o\u00f3]n[\\s_]+(?:del[\\s_]+)?hogar",
+      "(?i)datos[\\s_]+(?:de[\\s_]+)?(?:la[\\s_]+)?vivienda"
+    )
+  }
+  extracted <- extract_ecv(
+    year, ecv_data[[year]], key_words, "ECV",
+    union(c(vivienda_cols, "P8520"), hogar_cols)
+  )
+  vivienda <- hogar <- list()
+  for (df in extracted) {
+    if (!"DIRECTORIO" %in% names(df) || all(is.na(df$DIRECTORIO))) next
+    has_vivienda <- any(c("P4000", "P4005", "P4015", "P8520") %in% names(df))
+    has_hogar <- any(c("P205", "P5010", "P8526", "P8530", "P8532",
+                      "CANT_PERSONAS_HOGAR") %in% names(df))
+    if (has_hogar) {
+      hogar[[length(hogar) + 1L]] <- df
+    } else if (has_vivienda) {
+      vivienda[[length(vivienda) + 1L]] <- df
+    }
+  }
+  dfs_vivienda_by_year[year] <- list(merge_annual_tables(vivienda, vivienda_cols))
+  dfs_hogar_by_year[year] <- list(merge_annual_tables(hogar, hogar_cols))
+}
+```
+
+## 4. Extract expansion factors
+
+Survey expansion factors are needed to produce population-level estimates from the sampled households. For each available year, this step searches for the file whose name identifies expansion factors based on the 2018 National Population and Housing Census (**CNPV 2018**).
+
+Only `DIRECTORIO` and `FEX_C_2018` are retained, with one expansion-factor record per directory identifier. If the expected file or columns are unavailable for a year, the exception is reported and the workflow continues with the remaining years.
+
+```{r ecv-factors}
+dfs_fex_by_year <- list()
+for (year in names(ecv_data)) {
+  dfs_fex_by_year[year] <- list(tryCatch({
+    extracted <- extract_ecv(
+      year, ecv_data[[year]],
+      "(?i)factores[\\s_]+de[\\s_]+expansi[o\u00f3]n[\\s_]+(?:20)?[0-9]{2}[\\s_]+basados[\\s_]+en[\\s_]+el[\\s_]+CNPV[\\s_]+2018",
+      "ECV_FEX_2018", c("DIRECTORIO", "FEX_C_2018")
+    )
+    if (length(extracted) && all(c("DIRECTORIO", "FEX_C_2018") %in% names(extracted[[1L]]))) {
+      extracted[[1L]] |> select(DIRECTORIO, FEX_C_2018) |>
+        distinct(DIRECTORIO, .keep_all = TRUE)
+    } else NULL
+  }, error = function(e) {
+    message("Skipping ", year, " expansion factors: ", conditionMessage(e))
+    NULL
+  }))
+}
+```
+
+## 5. Extract municipality identifiers
+
+Some annual housing tables do not contain the municipality identifier directly. This step retrieves the ECV file describing the municipality where the survey was administered and retains the `DIRECTORIO`–`P1_MUNICIPIO` mapping. Duplicate directory identifiers are removed before the mapping is stored by year.
+
+```{r ecv-municipalities}
+dfs_mpio_by_year <- list()
+for (year in names(ecv_data)) {
+  dfs_mpio_by_year[year] <- list(tryCatch({
+    extracted <- extract_ecv(
+      year, ecv_data[[year]],
+      "(?i)municipio[\\s_]+de[\\s_]+aplicaci[o\u00f3]n[\\s_]+de[\\s_]+la[\\s_]+encuesta[\\s_]+(?:20)?[0-9]{2}",
+      "ECV_MPIO", c("DIRECTORIO", "P1_MUNICIPIO")
+    )
+    if (length(extracted) && all(c("DIRECTORIO", "P1_MUNICIPIO") %in% names(extracted[[1L]]))) {
+      extracted[[1L]] |> select(DIRECTORIO, P1_MUNICIPIO) |>
+        distinct(DIRECTORIO, .keep_all = TRUE)
+    } else NULL
+  }, error = function(e) {
+    message("Skipping ", year, " municipalities: ", conditionMessage(e))
+    NULL
+  }))
+}
+```
+
+## 6. Extract additional 2010 identification fields
+
+The 2010 ECV archive requires an additional extraction because its identification fields are distributed differently from those in later editions. The configured identification file is retrieved separately, and its column names are standardized so that department, area class, and region can be incorporated during consolidation.
+
+```{r ecv-identification}
+dfs_2010_id <- tryCatch(
+  extract_ecv(
+    "2010", ecv_data[["2010"]], "Datos de idenrificacion-final", "ECV_2010_ID",
+    c("DIRECTORIO", "DEPARTAMENTO", "P1_DEPARTAMENTO", "CLASE", "REGION")
+  ),
+  error = function(e) {
+    message("Skipping 2010 identification: ", conditionMessage(e))
+    list()
+  }
+)
+```
+
+## 7. Consolidate the annual datasets
+
+For each year, merge the expansion factor into the household table using `DIRECTORIO`. When the municipality is absent from the housing table, add it from the annual municipality mapping. For 2010, use the separately extracted identification table to complete `P1_DEPARTAMENTO`, `CLASE`, and `REGION` where those fields are available.
+
+All merges in this step preserve the housing or household records already assembled for the year and add only the supporting fields needed for the final annual files.
+
+```{r ecv-consolidate}
+add_supporting_fields <- function(data, lookup, fields) {
+  lookup <- lookup |> select(any_of(c("DIRECTORIO", fields))) |>
+    distinct(DIRECTORIO, .keep_all = TRUE)
+  result <- left_join(data, lookup, by = "DIRECTORIO", suffix = c("", "_aux"))
+  for (field in fields) {
+    auxiliary <- paste0(field, "_aux")
+    if (auxiliary %in% names(result)) {
+      result[[field]] <- coalesce(result[[field]], result[[auxiliary]])
+      result[[auxiliary]] <- NULL
+    }
+  }
+  result
+}
+
+for (year in names(ecv_data)) {
+  hogar <- dfs_hogar_by_year[[year]]
+  vivienda <- dfs_vivienda_by_year[[year]]
+  if (!is.null(hogar) && !is.null(dfs_fex_by_year[[year]])) {
+    hogar <- add_supporting_fields(hogar, dfs_fex_by_year[[year]], "FEX_C_2018")
+  }
+  if (!is.null(vivienda) && !is.null(dfs_mpio_by_year[[year]]) &&
+      (!"P1_MUNICIPIO" %in% names(vivienda) || all(is.na(vivienda$P1_MUNICIPIO)))) {
+    vivienda <- add_supporting_fields(vivienda, dfs_mpio_by_year[[year]], "P1_MUNICIPIO")
+  }
+  if (year == "2010" && !is.null(vivienda) && length(dfs_2010_id)) {
+    identification <- dfs_2010_id[[1L]]
+    if (!"P1_DEPARTAMENTO" %in% names(identification) && "DEPARTAMENTO" %in% names(identification)) {
+      identification <- rename(identification, P1_DEPARTAMENTO = DEPARTAMENTO)
+    }
+    if ("DIRECTORIO" %in% names(identification)) {
+      vivienda <- add_supporting_fields(
+        vivienda, identification, c("P1_DEPARTAMENTO", "CLASE", "REGION")
+      )
+    }
+  }
+  dfs_hogar_by_year[year] <- list(hogar)
+  dfs_vivienda_by_year[year] <- list(vivienda)
+}
+```
+
+## 8. Save the annual CSV files
+
+Create a unique run directory under `data/dfs` so that a new execution does not overwrite previous results. Housing and household tables are combined with an outer merge on `DIRECTORIO`, the duplicated year fields are reconciled, and numeric columns are converted to appropriate pandas numeric types.
+
+One file named `df_ecv_<year>.csv` is written for each successfully processed year. After the outputs are saved, the temporary ECV download directory is removed with `s4h_delete_download_folder`.
+
+```{r ecv-save}
+output_root <- file.path(vignette_dir, "data", "dfs")
+dir.create(output_root, recursive = TRUE, showWarnings = FALSE)
+run_dir <- tempfile("run_", tmpdir = output_root)
+dir.create(run_dir)
+
+convert_numeric <- function(x) {
+  values <- suppressWarnings(as.numeric(as.character(x)))
+  present <- values[!is.na(values)]
+  if (length(present) && all(is.finite(present)) &&
+      all(present == floor(present)) && all(abs(present) <= .Machine$integer.max)) {
+    as.integer(values)
+  } else values
+}
+
+for (year in names(ecv_data)) {
+  vivienda <- dfs_vivienda_by_year[[year]]
+  hogar <- dfs_hogar_by_year[[year]]
+  if (is.null(vivienda) && is.null(hogar)) next
+  joined <- if (!is.null(vivienda) && !is.null(hogar)) {
+    full_join(vivienda, hogar, by = "DIRECTORIO", suffix = c("_vivienda", "_hogar"))
+  } else if (!is.null(vivienda)) vivienda else hogar
+  if ("YEAR_vivienda" %in% names(joined)) joined <- rename(joined, YEAR = YEAR_vivienda)
+  if ("YEAR_hogar" %in% names(joined)) {
+    joined$YEAR <- if ("YEAR" %in% names(joined)) {
+      coalesce(joined$YEAR, joined$YEAR_hogar)
+    } else joined$YEAR_hogar
+    joined$YEAR_hogar <- NULL
+  }
+  joined <- mutate(joined, across(everything(), convert_numeric))
+  output_file <- file.path(run_dir, paste0("df_ecv_", year, ".csv"))
+  write.csv(joined, output_file, row.names = FALSE, na = "")
+  message(year, ": ", nrow(joined), " rows saved in ", output_file)
+}
+message("Process completed. Files available at: ", run_dir)
+
+# Remove only this run's downloads, never another user's ECV directory.
+cleanup_extractor <- s4h_extractor(download_dir, output_path = download_dir)
+s4h_delete_download_folder(cleanup_extractor, folder_path = download_dir)
+```
+
+## Output and scope
+
+The generated annual CSV files provide the prepared housing and household inputs for downstream housing-deficit calculations. This notebook does not calculate the housing deficit, construct the vulnerability indicator, or reproduce analytical results from the unpublished manuscript.
+

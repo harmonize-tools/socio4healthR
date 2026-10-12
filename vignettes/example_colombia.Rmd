@@ -1,0 +1,194 @@
+---
+title: "Hands-on with socio4health: socioeconomic and demographic variables on dengue incidence in Colombia"
+author: "socio4healthR authors"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Hands-on with socio4health: socioeconomic and demographic variables on dengue incidence in Colombia}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  eval = TRUE
+)
+```
+
+<img src="https://raw.githubusercontent.com/harmonize-tools/socio4health/main/docs/source/_static/image.png" alt="image info" height="100" width="100"/>
+
+
+# Hands-on with socio4health: socioeconomic and demographic variables on dengue incidence in Colombia
+
+
+**R implementation note:** This R Markdown vignette implements the corresponding Python library vignette; only the code blocks have been adapted to R.
+
+**Run the tutorial via free cloud platforms:** [![Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/harmonize-tools/socio4health/HEAD?urlpath=%2Fdoc%2Ftree%2Fdocs%2Fsource%2Fnotebooks%2Fexample_colombia.ipynb) <a target="_blank" href="https://colab.research.google.com/github/harmonize-tools/socio4health/blob/main/docs/source/notebooks/example_colombia.ipynb">
+  <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/>
+</a>
+
+This notebook provides you with a real world example on how to use **socio4health** to **retrieve**, **harmonize** and **analyze** **socioeconomic and demographic** variables related to **dengue** incidence in Colombia and recreate the dataset used in the publication *Exploring Dengue Dynamics: A Multi-Scale Analysis of Spatio-Temporal Trends in Ibagué, Colombia* by Otelo et al., published in *Virus* in 2024 ([DOI](https://doi.org/10.3390/v16060906)). This tutorial assumes you have an **intermediate** or **advanced** understanding of **Python** and data manipulation.
+
+## Setting up the environment
+
+To run this notebook, you need to have the following prerequisites:
+
+- **Python 3.10+**
+
+Additionally, you need to install the `socio4health` and `pandas` package, which can be done using ``pip``:
+
+
+
+```{r install}
+remotes::install_github(
+  "harmonize-tools/socio4healthR",
+  force = TRUE,
+  upgrade = "never",
+  build_vignettes = FALSE
+)
+library(socio4healthR)
+s4h_check_env(initialize = TRUE)
+```
+
+## Import Libraries
+
+To perform the data extraction, the `socio4health` library provides the `Extractor` class for data extraction, and the `Harmonizer` class for data harmonization of the retrieved date. `pandas` will be used for data manipulation. Additionally, we will use some utility functions from the `socio4health.utils.harmonizer_utils` module to standardize and translate the dictionary.
+
+
+```{r libraries}
+library(readxl)
+library(ggplot2)
+vignette_dir <- if (file.exists("raw_dic_mzn.xlsx")) "." else "vignettes"
+```
+
+## 1. Extract data from Colombia
+
+To extract data from Colombia, use the `Extractor` class from the `socio4health` library. As in the publication, extract the Colombian National Population and Housing Census 2018 (**CNPV 2018**) dataset from the Colombian Nacional Administration of Statistics (**DANE**) website. The dataset is available at: https://microdatos.dane.gov.co/index.php/catalog/643/related-materials.
+
+The `Extractor` class requires the following parameters:
+- `input_path`: The `URL` or local path to the data source.
+- `down_ext`: A list of file extensions to download. This can include `.CSV`, `.csv`, `.zip`, etc.
+- `output_path`: The local path where the extracted data will be saved.
+- `key_words`: A list of keywords to filter the files to be downloaded. In this case, we are only interested in the file `14045.zip`, which contains the data at the desired level of granularity (census block level or "Manzana").
+- `depth`: The depth of the directory structure to traverse when downloading files. A depth of `0` means only the files in the specified directory will be downloaded.
+
+
+
+```{r colombia-extract}
+col_online_extractor <- s4h_extractor(
+  input_path = paste0(
+    "https://microdatos.dane.gov.co/index.php/catalog/643/",
+    "related-materials"
+  ),
+  down_ext = c(
+    ".cpg", ".dbf", ".prj", ".sbn", ".sbx", ".shx", ".shp", ".zip"
+  ),
+  output_path = file.path(vignette_dir, "data", "CNPV2018"),
+  key_words = list("14045.zip"),
+  depth = 0L,
+  delete_zip_after = TRUE
+)
+col_cnpv <- s4h_extract(col_online_extractor, return_as = "dask")
+col_cnpv[[1L]]
+```
+
+## 2. Load and standardize the dictionary
+To harmonize the data, provide a dictionary that describes the variables in the dataset. The CNPV 2018 dictionary is available at [here](https://microdatos.dane.gov.co/index.php/catalog/643/download/14045). Follow the steps in the tutorial ["How to Create a Raw Dictionary for Data Harmonization"](https://harmonize-tools.github.io/socio4health/dictionary.html) to create a raw dictionary in Excel format.
+
+
+
+```{r colombia-raw-dictionary}
+raw_dic <- readxl::read_excel(file.path(vignette_dir, "raw_dic_mzn.xlsx"))
+raw_dic
+```
+
+Standardize the dictionary using the `s4h_standardize_dict` function from the `harmonizer_utils` module. Then, translate it to English using the `s4h_translate_column` function from the same module (**Note**: The translation model is downloaded on first use and cached locally, so the first execution may take a few minutes). Finally, classify the variables into categories using a pre-trained **BERT model**.
+
+```{r colombia-dictionary}
+dic <- s4h_standardize_dict(raw_dic)
+dic <- s4h_translate_column(dic, "question", language = "en")
+dic <- s4h_translate_column(dic, "description", language = "en")
+dic <- s4h_translate_column(dic, "possible_answers", language = "en")
+dic <- s4h_classify_rows(
+  dic,
+  "question_en",
+  "description_en",
+  "possible_answers_en",
+  new_column_name = "category",
+  MODEL_PATH = "dirreno/harmonize_bert_finetuned_classifier"
+)
+```
+
+This is how the standardized and translated dictionary looks:
+
+```{r colombia-dictionary-output}
+dic
+```
+
+## 3. Harmonize the data
+
+Use the Harmonizer class from the **socio4health** library to harmonize the data. First, set the similarity threshold to `0.9`, meaning that only variables with a similarity score of `0.9` or higher will be considered for harmonization. Next, set the `nan_threshold` to `1`, meaning that **only variables with no missing values** will be considered for harmonization.
+
+The available columns in the dataset can be checked using the `s4h_get_available_columns` method. This method takes a list of DataFrames as input and **returns a list of column names that are present in the DataFrames**.
+
+```{r colombia-available-columns}
+available_columns <- s4h_get_available_columns(col_cnpv)
+available_columns
+
+col_cnpv[[1L]]$shape
+```
+
+Configure the dictionary, categories, additional columns, key column, and key values to prepare for the harmonization process. Set the `dict_df` parameter to the standardized and translated dictionary. Set the `categories` parameter to "Housing" to ensure that only housing-related variables are considered for harmonization. Set the `extra_cols` and `key_col`parameter to `MPIO_CDPMP`, which stands for the municipality code. This allows for **filtering the data** to include only records from a specific municipality. In this case, we are interested in the municipality with the code `73001`, which corresponds to Ibague. Finally, use the `s4h_data_selector` method to **filter the data based on the specified key column and key values**. This method returns a list of DataFrames that match the filtering criteria.
+
+```{r colombia-select}
+harmonizer <- s4h_harmonizer(
+  nan_threshold = 1,
+  dict_df = dic,
+  categories = list("Housing"),
+  extra_cols = c("MPIO_CDPMP", "GEOMETRY"),
+  key_col = "MPIO_CDPMP",
+  key_val = list("73001")
+)
+filtered_ddfs <- s4h_data_selector(
+  harmonizer,
+  col_cnpv,
+  return_as = "pandas"
+)
+```
+
+The method `s4h_compare_with_dict` can be used to compare the available columns in the dataset with the variables in the dictionary. This method helps to identify which variables from the dictionary are present in the dataset and can be harmonized.
+
+Finally, display the filtered DataFrames to see the harmonized data for the specified municipality. If needed, the harmonized data can be exported to a CSV file using the `to_csv` method.
+
+```{r colombia-compare}
+comparison <- s4h_compare_with_dict(harmonizer, col_cnpv)
+comparison
+filtered_ddfs
+```
+
+Finally, display the filtered DataFrames to see the harmonized data for the specified municipality. If needed, the harmonized data can be **exported to a CSV file** using the `to_csv` method or **visualized** using `matplotlib`, `geopandas`, and `numpy` as shown below:
+
+
+```{r colombia-map}
+geo_df <- filtered_ddfs[[1L]]
+attributes <- reticulate::py_to_r(
+  geo_df$drop(columns = "GEOMETRY")
+)
+geometry_wkt <- reticulate::py_to_r(geo_df$GEOMETRY$to_wkt())
+
+gdf <- sf::st_sf(
+  attributes,
+  geometry = sf::st_as_sfc(geometry_wkt, crs = 4326)
+)
+gas <- as.numeric(as.character(gdf$TP19_GAS_1))
+gdf$TP19_GAS_1_Log <- NA_real_
+gdf$TP19_GAS_1_Log[!is.na(gas) & gas > 0] <- log(gas[!is.na(gas) & gas > 0])
+
+ggplot(gdf) +
+  geom_sf(aes(fill = TP19_GAS_1_Log), colour = NA) +
+  scale_fill_viridis_c(name = "Gas line connection (log)", na.value = "grey90") +
+  labs(title = "Gas line connection map") +
+  theme_void()
+```
+
