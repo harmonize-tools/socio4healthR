@@ -13,13 +13,15 @@ s4h_extract(extractor, return_as = c("dask", "pandas", "data.frame"))
 }
 \value{
 \itemize{
-\item \code{"dask"}: list of Dask objects (Python).
+\item \code{"dask"}: list of native Python DataFrames, preserving lazy Dask
+objects and already-materialized pandas/GeoPandas objects.
 \item \code{"pandas"}: list of pandas DataFrames (Python).
 \item \code{"data.frame"}: list of R data.frames.
 }
 }
 \description{
 Wrapper for \code{Extractor.s4h_extract()} in Python.
-Depending on \code{return_as}, converts the list of Dask DataFrames to
-pandas or R data.frames.
+Depending on \code{return_as}, preserves the Python DataFrames or converts
+them to pandas or R data.frames. CSV and FWF readers return lazy Dask
+DataFrames; SPSS and geospatial readers return pandas/GeoPandas objects.
 }

@@ -20,6 +20,8 @@ R data.frame with a new translated column.
 Translates Spanish or Portuguese using
 \code{Helsinki-NLP/opus-mt-ROMANCE-en}. The model is downloaded on first use
 and reused from the local Hugging Face cache. Repeated texts are cached
-within the Python process. Texts of at least 5000 characters are truncated
+within the Python process. Translation uses length-sorted batches and splits
+long inputs into token-sized fragments before recombining them in order.
+Texts of at least 5000 characters are truncated
 to 4500 characters by Python.
 }

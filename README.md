@@ -137,16 +137,24 @@ Translation uses the local `Helsinki-NLP/opus-mt-ROMANCE-en` model for Spanish
 or Portuguese text and supports English (`language = "en"`) as its target.
 The first translation downloads the model; later calls reuse the local cache.
 If you select your own Python environment, update it with
-`python -m pip install --upgrade "socio4health[scraping,ml,geo]>=1.0.9,<2"`.
+`python -m pip install --upgrade "socio4health[ml,geo]>=1.0.11,<2" "Scrapy==2.14.1" "Twisted<25.0"`.
 
 ### Requirements
 
 Before installing socio4healthR, ensure you have:
 
 - **R** >= 4.1.0
+- **RStudio on Windows** >= 2025.05, preferably the current stable release.
+  Older releases bundle Visual C++ runtime DLLs that can abort the R session
+  when modern Python ML libraries are imported, including SentencePiece.
 - An internet connection the first time Python functionality is used
 
-Python >= 3.10, `socio4health` >= 1.0.9, and its scraping, machine learning,
+The R vignettes additionally use `readxl`, `dplyr`, `ggplot2`, `scales`,
+and `sf` (for the Colombia map). Install these R packages before running
+the examples. Large census tables remain in Python until filtering or
+aggregation produces the data needed for the R analysis and graphics.
+
+Python >= 3.10, `socio4health` >= 1.0.11, and its scraping, machine learning,
 and geospatial dependencies are managed
 automatically by `reticulate`. You do not need to create a Python environment
 or run `pip install` manually. On Windows, the package selects the compatible
@@ -154,6 +162,12 @@ PyTorch 2.8 release to avoid the DLL initialization regression in newer
 PyTorch releases when embedded in Qt applications such as RStudio. It also
 uses pandas 2.x because the current `socio4health` release is not yet compatible
 with pandas 3.x.
+
+Scraping dependencies are declared separately as `Scrapy==2.14.1` and
+`Twisted<25.0`, matching the upstream `requirements.txt`. The published
+`socio4health` 1.0.11 `scraping` extra still pins Scrapy 2.11.1, so the wrapper
+does not request that extra. Restart R after updating the wrapper so these
+requirements are declared before Python is initialized.
 
 ### Install socio4healthR from CRAN
 

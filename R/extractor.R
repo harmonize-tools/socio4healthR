@@ -111,14 +111,16 @@ s4h_extractor <- function(input_path,
 #' Execute `s4h_extract()` from an `Extractor` Object
 #'
 #' Wrapper for `Extractor.s4h_extract()` in Python.
-#' Depending on \code{return_as}, converts the list of Dask DataFrames to
-#' pandas or R data.frames.
+#' Depending on \code{return_as}, preserves the Python DataFrames or converts
+#' them to pandas or R data.frames. CSV and FWF readers return lazy Dask
+#' DataFrames; SPSS and geospatial readers return pandas/GeoPandas objects.
 #'
 #' @param extractor Python `Extractor` object (returned by \code{s4h_extractor()}).
 #' @param return_as \code{"dask"}, \code{"pandas"}, or \code{"data.frame"}.
 #'
 #' @return
-#' * \code{"dask"}: list of Dask objects (Python).
+#' * \code{"dask"}: list of native Python DataFrames, preserving lazy Dask
+#'   objects and already-materialized pandas/GeoPandas objects.
 #' * \code{"pandas"}: list of pandas DataFrames (Python).
 #' * \code{"data.frame"}: list of R data.frames.
 #' @export
